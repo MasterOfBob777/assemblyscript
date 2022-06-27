@@ -16,13 +16,13 @@ import {
 import {
   Tokenizer,
   Token,
-  Range,
   CommentHandler,
   IdentifierHandling,
   isIllegalVariableIdentifier
 } from "./tokenizer";
 
 import {
+  Range,
   DiagnosticCode,
   DiagnosticEmitter,
   DiagnosticMessage
@@ -122,10 +122,10 @@ export class Parser extends DiagnosticEmitter {
   /** Constructs a new parser. */
   constructor(
     diagnostics: DiagnosticMessage[] | null = null,
-    sources: Source[] | null = null
+    sources: Source[] = []
   ) {
     super(diagnostics);
-    this.sources = sources ? sources : new Array<Source>();
+    this.sources = sources;
   }
 
   /** Parses a file and adds its definitions to the program. */
@@ -371,7 +371,7 @@ export class Parser extends DiagnosticEmitter {
 
         // handle plain exports
         if (flags & CommonFlags.EXPORT) {
-          if (defaultEnd && tn.skipIdentifier(IdentifierHandling.PREFER)) {
+          if (defaultEnd && tn.skipIdentifier()) {
             if (declareEnd) {
               this.error(
                 DiagnosticCode.An_export_assignment_cannot_have_modifiers,
@@ -424,7 +424,10 @@ export class Parser extends DiagnosticEmitter {
         case NodeKind.CLASSDECLARATION:
         case NodeKind.INTERFACEDECLARATION:
         case NodeKind.NAMESPACEDECLARATION: {
-          return Node.createExportDefaultStatement(<DeclarationStatement>statement, tn.range(startPos, tn.pos));
+          return Node.createExportDefaultStatement(
+            <DeclarationStatement>statement,
+            tn.range(startPos, tn.pos)
+          );
         }
         default: {
           this.error(
@@ -580,7 +583,7 @@ export class Parser extends DiagnosticEmitter {
         Node.createSimpleTypeName("this", tn.range()), [], false, tn.range(startPos, tn.pos)
       );
 
-    // 'true'
+    // 'true' | `false`
     } else if (token == Token.TRUE || token == Token.FALSE) {
       type = Node.createNamedType(
         Node.createSimpleTypeName("bool", tn.range()), [], false, tn.range(startPos, tn.pos)
@@ -635,19 +638,21 @@ export class Parser extends DiagnosticEmitter {
       return null;
     }
     // ... | null
-    while (tn.skip(Token.BAR)) {
-      if (tn.skip(Token.NULL)) {
-        type.isNullable = true;
-      } else {
-        let notNullStart = tn.pos;
-        let notNull = this.parseType(tn, false, true);
-        if (!suppressErrors) {
-          this.error(
-            DiagnosticCode._0_expected,
-            notNull ? notNull.range : tn.range(notNullStart), "null"
-          );
+    if (tn.peek() != Token.BAR_BAR) {
+      while (tn.skip(Token.BAR)) {
+        if (tn.skip(Token.NULL)) {
+          type.isNullable = true;
+        } else {
+          let notNullStart = tn.pos;
+          let notNull = this.parseType(tn, false, true);
+          if (!suppressErrors) {
+            this.error(
+              DiagnosticCode._0_expected,
+              notNull ? notNull.range : tn.range(notNullStart), "null"
+            );
+          }
+          return null;
         }
-        return null;
       }
     }
     // ... [][]
@@ -713,7 +718,6 @@ export class Parser extends DiagnosticEmitter {
       isSignature = true;
       tn.discard(state);
       parameters = [];
-
     } else {
       isSignature = false; // not yet known
       do {
@@ -780,7 +784,9 @@ export class Parser extends DiagnosticEmitter {
               }
             }
             if (isSignature) {
-              let param = Node.createParameter(kind, name, Node.createOmittedType(tn.range(tn.pos)), null, tn.range(paramStart, tn.pos));
+              let param = Node.createParameter(
+                kind, name, Node.createOmittedType(tn.range(tn.pos)), null, tn.range(paramStart, tn.pos)
+              );
               if (!parameters) parameters = [ param ];
               else parameters.push(param);
               this.error(
@@ -886,7 +892,7 @@ export class Parser extends DiagnosticEmitter {
       let name = tn.readIdentifier();
       let expression: Expression = Node.createIdentifierExpression(name, tn.range(startPos, tn.pos));
       while (tn.skip(Token.DOT)) {
-        if (tn.skipIdentifier(IdentifierHandling.PREFER)) {
+        if (tn.skipIdentifier()) {
           name = tn.readIdentifier();
           expression = Node.createPropertyAccessExpression(
             expression,
@@ -1585,7 +1591,9 @@ export class Parser extends DiagnosticEmitter {
     var parameters = this.parseParameters(tn);
     if (!parameters) return null;
 
-    return this.parseFunctionExpressionCommon(tn, name, parameters, this.parseParametersThis, arrowKind, startPos, signatureStart);
+    return this.parseFunctionExpressionCommon(
+      tn, name, parameters, this.parseParametersThis, arrowKind, startPos, signatureStart
+    );
   }
 
   private parseFunctionExpressionCommon(
@@ -1728,8 +1736,8 @@ export class Parser extends DiagnosticEmitter {
           return null;
         }
         if (!isInterface) {
-          if (!implementsTypes) implementsTypes = [];
-          implementsTypes.push(<NamedTypeNode>type);
+          if (!implementsTypes) implementsTypes = [ <NamedTypeNode>type ];
+          else implementsTypes.push(<NamedTypeNode>type);
         }
       } while (tn.skip(Token.COMMA));
     }
@@ -1874,8 +1882,8 @@ export class Parser extends DiagnosticEmitter {
       do {
         let decorator = this.parseDecorator(tn);
         if (!decorator) break;
-        if (!decorators) decorators = new Array();
-        decorators.push(decorator);
+        if (!decorators) decorators = [ decorator ];
+        else decorators.push(decorator);
       } while (tn.skip(Token.AT));
       if (isInterface && decorators) {
         this.error(
@@ -3680,6 +3688,9 @@ export class Parser extends DiagnosticEmitter {
 
       // NewExpression
       case Token.NEW: {
+
+        // at 'new': Identifier ('<' TypeArguments '>')? ('(' Arguments ')')? ';'?
+
         if (!tn.skipIdentifier()) {
           this.error(
             DiagnosticCode.Identifier_expected,
@@ -4224,26 +4235,6 @@ export class Parser extends DiagnosticEmitter {
           }
           break;
         }
-        // BinaryExpression (right associative)
-        case Token.EQUALS:
-        case Token.PLUS_EQUALS:
-        case Token.MINUS_EQUALS:
-        case Token.ASTERISK_ASTERISK_EQUALS:
-        case Token.ASTERISK_EQUALS:
-        case Token.SLASH_EQUALS:
-        case Token.PERCENT_EQUALS:
-        case Token.LESSTHAN_LESSTHAN_EQUALS:
-        case Token.GREATERTHAN_GREATERTHAN_EQUALS:
-        case Token.GREATERTHAN_GREATERTHAN_GREATERTHAN_EQUALS:
-        case Token.AMPERSAND_EQUALS:
-        case Token.CARET_EQUALS:
-        case Token.BAR_EQUALS:
-        case Token.ASTERISK_ASTERISK: {
-          let next = this.parseExpression(tn, nextPrecedence);
-          if (!next) return null;
-          expr = Node.createBinaryExpression(token, expr, next, tn.range(startPos, tn.pos));
-          break;
-        }
         // BinaryExpression
         case Token.LESSTHAN:
         case Token.GREATERTHAN:
@@ -4266,7 +4257,24 @@ export class Parser extends DiagnosticEmitter {
         case Token.CARET:
         case Token.AMPERSAND_AMPERSAND:
         case Token.BAR_BAR: {
-          let next = this.parseExpression(tn, nextPrecedence + 1);
+          ++nextPrecedence;
+        }
+        // BinaryExpression (right associative)
+        case Token.EQUALS:
+        case Token.PLUS_EQUALS:
+        case Token.MINUS_EQUALS:
+        case Token.ASTERISK_ASTERISK_EQUALS:
+        case Token.ASTERISK_EQUALS:
+        case Token.SLASH_EQUALS:
+        case Token.PERCENT_EQUALS:
+        case Token.LESSTHAN_LESSTHAN_EQUALS:
+        case Token.GREATERTHAN_GREATERTHAN_EQUALS:
+        case Token.GREATERTHAN_GREATERTHAN_GREATERTHAN_EQUALS:
+        case Token.AMPERSAND_EQUALS:
+        case Token.CARET_EQUALS:
+        case Token.BAR_EQUALS:
+        case Token.ASTERISK_ASTERISK: {
+          let next = this.parseExpression(tn, nextPrecedence);
           if (!next) return null;
           expr = Node.createBinaryExpression(token, expr, next, tn.range(startPos, tn.pos));
           break;
@@ -4394,6 +4402,11 @@ export class Parser extends DiagnosticEmitter {
           tn.checkForIdentifierStartAfterNumericLiteral();
           break;
         }
+        case Token.SLASH: {
+          tn.readRegexpPattern();
+          tn.readRegexpFlags();
+          break;
+        }
         case Token.OPENBRACE: {
           this.skipBlock(tn);
           break;
@@ -4437,7 +4450,7 @@ export class Parser extends DiagnosticEmitter {
         }
         case Token.TEMPLATELITERAL: {
           tn.readString();
-          while(tn.readingTemplateString){
+          while (tn.readingTemplateString) {
             this.skipBlock(tn);
             tn.readString(CharCode.BACKTICK);
           }
@@ -4451,6 +4464,11 @@ export class Parser extends DiagnosticEmitter {
         case Token.FLOATLITERAL: {
           tn.readFloat();
           tn.checkForIdentifierStartAfterNumericLiteral();
+          break;
+        }
+        case Token.SLASH: {
+          tn.readRegexpPattern();
+          tn.readRegexpFlags();
           break;
         }
       }
@@ -4488,11 +4506,15 @@ export const enum Precedence {
 function determinePrecedence(kind: Token): Precedence {
   switch (kind) {
     case Token.COMMA: return Precedence.COMMA;
+    case Token.YIELD: return Precedence.YIELD;
     case Token.EQUALS:
     case Token.PLUS_EQUALS:
     case Token.MINUS_EQUALS:
     case Token.ASTERISK_ASTERISK_EQUALS:
+    case Token.BAR_BAR_EQUALS:
+    case Token.AMPERSAND_AMPERSAND_EQUALS:
     case Token.ASTERISK_EQUALS:
+    case Token.QUESTION_QUESTION_EQUALS:
     case Token.SLASH_EQUALS:
     case Token.PERCENT_EQUALS:
     case Token.LESSTHAN_LESSTHAN_EQUALS:
@@ -4502,7 +4524,8 @@ function determinePrecedence(kind: Token): Precedence {
     case Token.CARET_EQUALS:
     case Token.BAR_EQUALS: return Precedence.ASSIGNMENT;
     case Token.QUESTION: return Precedence.CONDITIONAL;
-    case Token.BAR_BAR: return Precedence.LOGICAL_OR;
+    case Token.BAR_BAR:
+    case Token.QUESTION_QUESTION: return Precedence.LOGICAL_OR;
     case Token.AMPERSAND_AMPERSAND: return Precedence.LOGICAL_AND;
     case Token.BAR: return Precedence.BITWISE_OR;
     case Token.CARET: return Precedence.BITWISE_XOR;

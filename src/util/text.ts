@@ -144,13 +144,9 @@ export function isLineBreak(c: i32): bool {
     case CharCode.LINEFEED:
     case CharCode.CARRIAGERETURN:
     case CharCode.LINESEPARATOR:
-    case CharCode.PARAGRAPHSEPARATOR: {
-      return true;
-    }
-    default: {
-      return false;
-    }
+    case CharCode.PARAGRAPHSEPARATOR: return true;
   }
+  return false;
 }
 
 /** Tests if the specified character code is some sort of white space. */
@@ -166,13 +162,9 @@ export function isWhiteSpace(c: i32): bool {
     case CharCode.NARROWNOBREAKSPACE:
     case CharCode.MATHEMATICALSPACE:
     case CharCode.IDEOGRAPHICSPACE:
-    case CharCode.BYTEORDERMARK: {
-      return true;
-    }
-    default: {
-      return c >= CharCode.ENQUAD && c <= CharCode.ZEROWIDTHSPACE;
-    }
+    case CharCode.BYTEORDERMARK: return true;
   }
+  return c >= CharCode.ENQUAD && c <= CharCode.ZEROWIDTHSPACE;
 }
 
 /** First high (lead) surrogate. */
@@ -234,10 +226,15 @@ export function isOctal(c: i32): bool {
   return c >= CharCode._0 && c <= CharCode._7;
 }
 
+/** Tests if the specified character code is a valid hexadecimal symbol [a-f]. */
+export function isHexPart(c: i32): bool {
+  let c0 = c | 32; // unify uppercases and lowercases a|A - f|F
+  return c0 >= CharCode.a && c0 <= CharCode.f;
+}
+
 /** Tests if the specified character code is a valid hexadecimal digit. */
 export function isHex(c: i32): bool {
-  let c0 = c | 32; // unify uppercases and lowercases a|A - f|F
-  return isDecimal(c) || (c0 >= CharCode.a && c0 <= CharCode.f);
+  return isDecimal(c) || isHexPart(c);
 }
 
 /** Tests if the specified character code is trivially alphanumeric. */

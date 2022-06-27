@@ -15,6 +15,7 @@ import {
 } from "./builtins";
 
 import {
+  Range,
   DiagnosticCode,
   DiagnosticEmitter
 } from "./diagnostics";
@@ -107,7 +108,6 @@ import {
 
 import {
   Token,
-  Range,
   operatorTokenToString
 } from "./tokenizer";
 
